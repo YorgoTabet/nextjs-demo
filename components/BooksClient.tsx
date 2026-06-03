@@ -1,10 +1,15 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import SearchBar from './SearchBar';
+import Pagination from './Pagination';
+import { usePagination } from '@/hooks/usePagination';
 import { Book, Author } from '@/lib/data';
+
+const PAGE_SIZE = 6;
 
 interface BooksClientProps {
   initialBooks: Book[];
@@ -12,35 +17,71 @@ interface BooksClientProps {
 }
 
 export default function BooksClient({ initialBooks, authors }: BooksClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedGenre, setSelectedGenre] = useState<string>('all');
 
-  // Get unique genres
+  const selectedGenre = searchParams.get('genre') || 'all';
+  const currentPage = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+
   const genres = useMemo(() => {
-    const genreSet = new Set(initialBooks.map(book => book.genre));
+    const genreSet = new Set(initialBooks.map((book) => book.genre));
     return ['all', ...Array.from(genreSet)];
   }, [initialBooks]);
 
-  // Filter books based on search and genre
   const filteredBooks = useMemo(() => {
-    return initialBooks.filter(book => {
-      const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           authors.find(a => a.id === book.authorId)?.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return initialBooks.filter((book) => {
+      const matchesSearch =
+        book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        authors
+          .find((a) => a.id === book.authorId)
+          ?.name.toLowerCase()
+          .includes(searchQuery.toLowerCase());
       const matchesGenre = selectedGenre === 'all' || book.genre === selectedGenre;
       return matchesSearch && matchesGenre;
     });
   }, [initialBooks, searchQuery, selectedGenre, authors]);
 
+  const { totalPages, currentPage: safePage, pageItems } = usePagination(
+    filteredBooks,
+    PAGE_SIZE,
+    currentPage
+  );
+
+  const updateParams = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    const query = params.toString();
+    router.push(`/books${query ? `?${query}` : ''}`);
+  };
+
+  const setGenre = (genre: string) => {
+    updateParams({ genre: genre === 'all' ? null : genre, page: null });
+  };
+
+  const setPage = (page: number) => {
+    updateParams({ page: page === 1 ? null : page.toString() });
+  };
+
+  const handleSearch = (query: string) => {
+    if (query === searchQuery) return;
+    setSearchQuery(query);
+    if (currentPage !== 1) {
+      updateParams({ page: null });
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-8">
-        All Books
-      </h1>
+      <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-8">All Books</h1>
 
-      <SearchBar 
-        onSearch={setSearchQuery}
-        placeholder="Search by title or author..."
-      />
+      <SearchBar onSearch={handleSearch} placeholder="Search by title or author..." />
 
       {/* Genre Filter */}
       <div className="mb-8">
@@ -48,7 +89,7 @@ export default function BooksClient({ initialBooks, authors }: BooksClientProps)
           {genres.map((genre) => (
             <button
               key={genre}
-              onClick={() => setSelectedGenre(genre)}
+              onClick={() => setGenre(genre)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 selectedGenre === genre
                   ? 'bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900'
@@ -61,12 +102,11 @@ export default function BooksClient({ initialBooks, authors }: BooksClientProps)
         </div>
       </div>
 
-      {/* Results count */}
       <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
         Showing {filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'}
       </p>
-      
-      {filteredBooks.length === 0 ? (
+
+      {pageItems.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-xl text-zinc-600 dark:text-zinc-400">
             No books found matching your criteria.
@@ -74,12 +114,11 @@ export default function BooksClient({ initialBooks, authors }: BooksClientProps)
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredBooks.map((book) => {
-            const author = authors.find(a => a.id === book.authorId);
-            
+          {pageItems.map((book) => {
+            const author = authors.find((a) => a.id === book.authorId);
             return (
-              <Link 
-                key={book.id} 
+              <Link
+                key={book.id}
                 href={`/books/${book.id}`}
                 className="bg-white dark:bg-zinc-900 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300"
               >
@@ -110,6 +149,8 @@ export default function BooksClient({ initialBooks, authors }: BooksClientProps)
           })}
         </div>
       )}
+
+      <Pagination currentPage={safePage} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }
